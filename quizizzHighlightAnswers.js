@@ -1,17 +1,17 @@
 async function fetchAnswers(mongoId, roomHash) {
-  const { data } = await fetch(
+  const {data} = await fetch(
     `https://api.quizit.online/quizizz/answers/hash?roomHash=${roomHash}&mongoId=${mongoId}`
-  ).then((res) => res.json());
+  ).then(res => res.json());
 
   return data.answers;
 }
 
 function waitForElement(selector) {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     if (document.querySelector(selector)) {
       return resolve(document.querySelector(selector));
     }
-    const observer = new MutationObserver((mutations) => {
+    const observer = new MutationObserver(mutations => {
       if (document.querySelector(selector)) {
         resolve(document.querySelector(selector));
         observer.disconnect();
@@ -41,11 +41,11 @@ function getGameData() {
 
   const {
     user: {
-      profile: { mongoId },
+      profile: {mongoId},
     },
     game: {
       data,
-      questions: { currentId },
+      questions: {currentId},
     },
   } = root.__vue_app__.config.globalProperties.$store.state;
 
@@ -59,11 +59,18 @@ function getGameData() {
 async function bootstrap() {
   await waitForElement(".screen-game");
 
-  const { mongoId, data } = getGameData();
+  console.info("Script initialized");
 
-  // const answers = await fetchAnswers(mongoId, data.roomHash);
+  const {mongoId, data} = getGameData();
 
-  setInterval(async () => {
+  const answers = await fetchAnswers(mongoId, data.roomHash);
+
+  const interval = setInterval(async () => {
+    if (document.querySelector(".screen-summary")) {
+      console.info("Quiz has finished and script has been deactivated");
+      clearInterval(interval);
+      return;
+    }
     await waitForElement(".options-container");
 
     searchAnswer(answers);
@@ -71,21 +78,18 @@ async function bootstrap() {
 }
 
 function searchAnswer(answers) {
-  const { currentId } = getGameData();
+  const {currentId} = getGameData();
 
-  const answer = answers.find((answer) => answer._id === currentId);
+  const answer = answers.find(answer => answer._id === currentId);
   if (!answer) {
     console.error("Can't find answer to this question");
     return;
   }
 
-  if (
-    answer.type === QUESTION_TYPES.BLANK ||
-    answer.type === QUESTION_TYPES.OPEN
-  ) {
+  if (answer.type === QUESTION_TYPES.BLANK) {
     const input = document.querySelector(".typed-option-input");
     if (!input) {
-      console.error("");
+      console.error("Answer input not found");
       return;
     }
 
@@ -93,24 +97,32 @@ function searchAnswer(answers) {
       console.error("No answers found");
       return;
     }
-    const [{ text }] = answer.answers;
+    const [{text}] = answer.answers;
 
     input.value = text;
     input.dispatchEvent(new Event("input"));
     return;
   }
 
-  if (
-    answer.type === QUESTION_TYPES.MSQ ||
-    answer.type === QUESTION_TYPES.MCQ
-  ) {
+  if (answer.type === QUESTION_TYPES.OPEN) {
+    const input = document.querySelector(".typed-option-input");
+    if (!input) {
+      console.error("Answer input not found");
+      return;
+    }
+
+    input.placeholder = "No answer available for this question";
+    return;
+  }
+
+  if (answer.type === QUESTION_TYPES.MSQ || answer.type === QUESTION_TYPES.MCQ) {
     const options = document.querySelector(".options-grid").children;
     if (!options) {
       console.error("Can't find any options");
       return;
     }
     for (const option of options) {
-      let optionContent = option.querySelector("#optionText > div")?.innerHTML;
+      let optionContent = option.querySelector(".textContainer > div")?.innerHTML;
 
       if (!optionContent) {
         const image = option.querySelector(".option-image");
@@ -118,7 +130,7 @@ function searchAnswer(answers) {
           let url = getComputedStyle(image).backgroundImage.slice(5, -2);
           url = url.slice(0, url.indexOf("?"));
 
-          if (answer.answers.some((answer) => answer.image === url)) {
+          if (answer.answers.some(answer => answer.image === url)) {
             highlightAnswer(option);
           }
           continue;
@@ -128,7 +140,21 @@ function searchAnswer(answers) {
         continue;
       }
 
-      if (answer.answers.some((answer) => answer.text === optionContent)) {
+      if (optionContent.includes("katex")) {
+        if (
+          answer.answers[0].text.slice(17, -20) ===
+          /x-tex">(.*)<\/annotation>/i.exec(optionContent)[1]
+        ) {
+          highlightAnswer(option);
+        }
+      }
+
+      if (
+        answer.answers.some(
+          answer =>
+            answer.text.replace(/(<([^>]+)>)/gi, "") === optionContent.replace(/(<([^>]+)>)/gi, "")
+        )
+      ) {
         highlightAnswer(option);
       }
     }
